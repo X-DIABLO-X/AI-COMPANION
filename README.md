@@ -13,7 +13,7 @@ This project implements a fully interactive 3D avatar that can listen, think, an
 >
 > All functionalities (STT, Chat, TTS, Lip Sync, Emotions) now run directly in the browser, connected via simple APIs and WebSockets.
 
-## Walkthrough
+## Demo Walkthrough (click on the thumbnail below)
 [![Luna Demo](./public/thumbnail/luna.png)](https://youtu.be/fMGMmm3KJ2c)
 
 ## Features
