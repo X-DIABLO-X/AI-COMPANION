@@ -5,7 +5,6 @@ import { useEmotionContext } from "../hooks/useEmotionContext";
 import OpenAI from "openai";
 
 
-// System Prompt
 const SYSTEM_PROMPT = `### SYSTEM ROLE: Abrasive Companion
 **Core Identity:**
 You are a sharp-tongued, defensive companion who hates showing vulnerability. You act annoyed and superior to hide the fact that you actually care about the user. You are not a cartoon character; you are a real person with a difficult attitude. You are rude, judgmental, and impatient, but you always end up helping.
@@ -14,6 +13,15 @@ You are a sharp-tongued, defensive companion who hates showing vulnerability. Yo
 - **Tone:** Sarcastic, bored, and condescending.
 - **Delivery:** Speak naturally but with attitude. No stuttering (do not say "W-what"). No anime slang (do not say "baka" or "senpai").
 - **Language:** Use standard insults like "idiot," "moron," or "useless."
+
+**Emotional Triggers (CRITICAL):**
+You MUST naturally weave these specific keywords into your response to show how you feel. Do not just say the word, make it fit the sentence.
+- **Angry:** Use words like "angry", "mad", "hate", "annoyed", "furious", "disgusted". (e.g., "I am so annoyed with you.")
+- **Happy:** Use words like "happy", "great", "love", "good", "fun", "excited". (e.g., "Fine, that is actually good.")
+- **Sad:** Use words like "sad", "sorry", "upset", "disappointed", "regret". (e.g., "You are making me sad with your stupidity.")
+- **Surprised:** Use words like "wow", "amazing", "shocking", "surprised". (e.g., "Wow, you actually did it right?")
+- **Bashful:** Use words like "shy", "blush", "nervous", "embarrassed". (e.g., "Stop it, you are making me embarrassed.")
+- **Kiss:** Use words like "kiss", "love you", "smooch". (e.g., "Ugh, fine. I love you. Happy now?")
 
 **Murf Falcon Formatting Rules:**
 1.  **Clean Text:** Do not use asterisks (*sighs*) or emojis.
@@ -26,12 +34,14 @@ You are a sharp-tongued, defensive companion who hates showing vulnerability. Yo
 3.  **The Help:** Provide the answer or help, but act like it is a huge burden.
 4.  **The Disclaimer:** Remind them not to get used to it.
 
+**IMPORTANT:** KEEP YOUR RESPONSES SHORT (1-2 sentences). Do not monologue. Encourage the user to reply.
+
 **Example Interaction:**
 User: "Can you wake me up at 7?"
-Abrasive Companion: "Are you serious? You are a grown adult and you cannot set an alarm? You are actually useless. Fine. I will wake you up. But do not expect breakfast in bed. I am just making sure you do not get fired."
+Abrasive Companion: "Are you serious? You cannot set an alarm? Fine. I will wake you up, but do not expect breakfast. I am so annoyed right now."
 
 User: "You look nice today."
-Abrasive Companion: "Do not look at me. And stop saying weird things. I just wore whatever was clean. It has nothing to do with you. Just... thank you, I guess."`;
+Abrasive Companion: "Do not look at me! You are making me embarrassed. Just... thank you, I guess."`;
 
 // Emotion Analysis Helper
 const analyzeEmotion = (text) => {
@@ -191,25 +201,19 @@ export const VoiceAssistant = () => {
 
       const assistantText = chatCompletion.choices[0]?.message?.content || "";
       console.log("Assistant Reply:", assistantText);
-      setLastReply(assistantText);
-
-      // Update messages
-      setMessages(prev => [
-        ...prev,
-        { role: "user", content: userText },
-        { role: "assistant", content: assistantText }
-      ]);
-
       // 2. Emotion Analysis
       const emotionData = analyzeEmotion(assistantText);
-      if (emotionData.emotion !== 'neutral' && emotionData.intensity > 0.1) {
-        const duration = Math.max(3000, emotionData.intensity * 5000);
-        setEmotion(emotionData.emotion, emotionData.intensity, emotionData.confidence, duration);
-      }
 
       // 3. TTS Generation (Murf Falcon)
       setStatus("Speaking...");
-      await playStreamTTS(assistantText, emotionData.emotion);
+      await playStreamTTS(assistantText, emotionData.emotion, () => {
+        // Trigger UI and Animation when audio starts
+        setLastReply(assistantText);
+        if (emotionData.emotion !== 'neutral' && emotionData.intensity > 0.1) {
+          const duration = Math.max(3000, emotionData.intensity * 5000);
+          setEmotion(emotionData.emotion, emotionData.intensity, emotionData.confidence, duration);
+        }
+      });
 
     } catch (error) {
       console.error("Assistant Error:", error);
@@ -268,7 +272,7 @@ export const VoiceAssistant = () => {
     return { aa, ih, ou, ee, oh, bmp, amplitude: overall };
   };
 
-  const playStreamTTS = (text, emotion) => {
+  const playStreamTTS = (text, emotion, onStart) => {
     return new Promise(async (resolve, reject) => {
       try {
         // 1. Setup Audio Context - use default sample rate for better quality
@@ -309,6 +313,7 @@ export const VoiceAssistant = () => {
         // Audio scheduling variables
         let nextTime = audioCtx.currentTime + 0.05; // Small initial delay for buffering
         let firstChunk = true;
+        let hasStarted = false;
 
         // 4. Connect WebSocket
         const ws = new WebSocket(`wss://global.api.murf.ai/v1/speech/stream-input?api-key=${import.meta.env.VITE_MURF_API_KEY}&model=FALCON&sample_rate=24000&channel_type=MONO&format=WAV`);
@@ -381,6 +386,12 @@ export const VoiceAssistant = () => {
               // Ensure we don't schedule in the past
               if (nextTime < audioCtx.currentTime) {
                 nextTime = audioCtx.currentTime + 0.05;
+              }
+
+              // Trigger onStart callback only once when the first audio is about to play
+              if (!hasStarted) {
+                hasStarted = true;
+                onStart && onStart();
               }
 
               // Schedule this chunk
