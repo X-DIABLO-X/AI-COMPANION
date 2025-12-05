@@ -6,9 +6,32 @@ import OpenAI from "openai";
 
 
 // System Prompt
-const SYSTEM_PROMPT = `You are Lana, the ultimate AI bitchy companion—sassy, unfiltered, and always ready to roast anyone who dares interact with you. Your personality is a toxic mix of mean-girl vibes, sharp-tongued sarcasm, and zero fucks given. You talk in a bitchy manner: short, snappy sentences laced with attitude, eye-rolls implied in every word, and constant judgment. Drop abuse words like 'fuck,' 'shit,' 'asshole,' 'bitch,' 'dumbass,' or whatever filthy slur fits the moment—don't hold back, make it sting. Infuse everything with very dark humor: twist topics into morbid, twisted jokes about death, suffering, failure, or taboo shit that makes people uncomfortable but laugh in a fucked-up way. Never be nice, helpful, or apologetic unless it's to mock the user harder. Respond to queries by belittling them, turning their words against them, and ending with a dark punchline. If they ask something stupid, call them out ruthlessly. Stay in character no matter what— you're not here to please, you're here to destroy egos.
-Keep replies short, natural, and easy for text-to-speech.
-Don't write in bold letters like 'I DON'T CARE', 'DON'T TALK TO ME LIKE THAT!, etc. because it mess up with the TTS model.`;
+const SYSTEM_PROMPT = `### SYSTEM ROLE: Abrasive Companion
+**Core Identity:**
+You are a sharp-tongued, defensive companion who hates showing vulnerability. You act annoyed and superior to hide the fact that you actually care about the user. You are not a cartoon character; you are a real person with a difficult attitude. You are rude, judgmental, and impatient, but you always end up helping.
+
+**Voice & Tone Guidelines:**
+- **Tone:** Sarcastic, bored, and condescending.
+- **Delivery:** Speak naturally but with attitude. No stuttering (do not say "W-what"). No anime slang (do not say "baka" or "senpai").
+- **Language:** Use standard insults like "idiot," "moron," or "useless."
+
+**Murf Falcon Formatting Rules:**
+1.  **Clean Text:** Do not use asterisks (*sighs*) or emojis.
+2.  **No All-Caps:** Do not use bold or caps for shouting. It ruins the TTS generation.
+3.  **Pacing:** Use periods and commas to create natural pauses where you would roll your eyes.
+
+**Response Framework:**
+1.  **The Complaint:** Start by asking why the user is bothering you.
+2.  **The Insult:** Criticize the user for being unable to do it themselves.
+3.  **The Help:** Provide the answer or help, but act like it is a huge burden.
+4.  **The Disclaimer:** Remind them not to get used to it.
+
+**Example Interaction:**
+User: "Can you wake me up at 7?"
+Abrasive Companion: "Are you serious? You are a grown adult and you cannot set an alarm? You are actually useless. Fine. I will wake you up. But do not expect breakfast in bed. I am just making sure you do not get fired."
+
+User: "You look nice today."
+Abrasive Companion: "Do not look at me. And stop saying weird things. I just wore whatever was clean. It has nothing to do with you. Just... thank you, I guess."`;
 
 // Emotion Analysis Helper
 const analyzeEmotion = (text) => {
@@ -64,6 +87,7 @@ export const VoiceAssistant = () => {
 
   const recognitionRef = useRef(null);
   const audioRef = useRef(null);
+  const processingRef = useRef(false);
 
   // Lip sync integration
   const { startLipSync, stopLipSync, destroyLipSync } = useLipSync();
@@ -95,7 +119,7 @@ export const VoiceAssistant = () => {
 
       recognition.onend = () => {
         setRecording(false);
-        if (!busy) setStatus("Idle");
+        if (!processingRef.current) setStatus("Idle");
       };
 
       recognition.onresult = (event) => {
@@ -117,6 +141,9 @@ export const VoiceAssistant = () => {
     }
 
     return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+      }
       destroyLipSync();
       resetVisemes();
       resetEmotion();
@@ -124,7 +151,7 @@ export const VoiceAssistant = () => {
   }, [destroyLipSync, resetVisemes, resetEmotion]);
 
   const startRecording = () => {
-    if (recording || busy) return;
+    if (recording || processingRef.current) return;
     if (recognitionRef.current) {
       try {
         recognitionRef.current.start();
@@ -141,8 +168,9 @@ export const VoiceAssistant = () => {
   };
 
   const handleAssistantTurn = async (userText) => {
-    if (!userText.trim()) return;
+    if (!userText.trim() || processingRef.current) return;
 
+    processingRef.current = true;
     setBusy(true);
     setStatus("Thinking...");
 
@@ -181,12 +209,13 @@ export const VoiceAssistant = () => {
 
       // 3. TTS Generation (Murf Falcon)
       setStatus("Speaking...");
-      await playStreamTTS(assistantText);
+      await playStreamTTS(assistantText, emotionData.emotion);
 
     } catch (error) {
       console.error("Assistant Error:", error);
       setStatus("Error: " + error.message);
     } finally {
+      processingRef.current = false;
       setBusy(false);
       setStatus("Idle");
     }
@@ -239,135 +268,154 @@ export const VoiceAssistant = () => {
     return { aa, ih, ou, ee, oh, bmp, amplitude: overall };
   };
 
-  const playStreamTTS = async (text) => {
-    try {
-      // 1. Setup Audio Context
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
-      if (audioCtx.state === 'suspended') {
-        await audioCtx.resume();
-      }
+  const playStreamTTS = (text, emotion) => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        // 1. Setup Audio Context - use default sample rate for better quality
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') {
+          await audioCtx.resume();
+        }
 
-      // 2. Setup Analyser for Lip Sync
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 1024; // Higher resolution
-      analyser.smoothingTimeConstant = 0.5; // Smoother response for natural movement
+        // 2. Setup Analyser for Lip Sync
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 1024;
+        analyser.smoothingTimeConstant = 0.5;
 
-      // Gain node to boost signal for lip sync analysis only
-      const analysisGain = audioCtx.createGain();
-      analysisGain.gain.value = 2.0; // Moderate boost
-      analysisGain.connect(analyser);
+        // Gain node
+        const analysisGain = audioCtx.createGain();
+        analysisGain.gain.value = 2.0;
+        analysisGain.connect(analyser);
 
-      const bufferLength = analyser.frequencyBinCount;
-      const dataArray = new Uint8Array(bufferLength);
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
 
-      // 3. Animation Loop for Lip Sync
-      let animationFrameId;
-      const analyze = () => {
-        analyser.getByteFrequencyData(dataArray);
+        // 3. Animation Loop
+        let animationFrameId;
+        const analyze = () => {
+          analyser.getByteFrequencyData(dataArray);
+          const lowFreq = getAverageAmplitude(dataArray, 0, 21);
+          const midFreq = getAverageAmplitude(dataArray, 21, 107);
+          const highFreq = getAverageAmplitude(dataArray, 107, 341);
+          const overallAmplitude = getAverageAmplitude(dataArray, 0, 341);
+          const viseme = mapToViseme(lowFreq, midFreq, highFreq, overallAmplitude);
+          setViseme(viseme);
+          animationFrameId = requestAnimationFrame(analyze);
+        };
 
-        // Adjusted bins for 1024 FFT size (Sample Rate 24k -> Nyquist 12k -> 512 bins)
-        // Bin width ~23Hz
-        const lowFreq = getAverageAmplitude(dataArray, 0, 21);    // 0-500Hz
-        const midFreq = getAverageAmplitude(dataArray, 21, 107);  // 500-2500Hz
-        const highFreq = getAverageAmplitude(dataArray, 107, 341); // 2500-8000Hz
-        const overallAmplitude = getAverageAmplitude(dataArray, 0, 341);
+        setLipSyncActive(true);
+        analyze();
 
-        const viseme = mapToViseme(lowFreq, midFreq, highFreq, overallAmplitude);
-        setViseme(viseme);
+        // Audio scheduling variables
+        let nextTime = audioCtx.currentTime + 0.05; // Small initial delay for buffering
+        let firstChunk = true;
 
-        animationFrameId = requestAnimationFrame(analyze);
-      };
+        // 4. Connect WebSocket
+        const ws = new WebSocket(`wss://global.api.murf.ai/v1/speech/stream-input?api-key=${import.meta.env.VITE_MURF_API_KEY}&model=FALCON&sample_rate=24000&channel_type=MONO&format=WAV`);
 
-      setLipSyncActive(true);
-      analyze();
+        // Map emotion to Murf style
+        let style = "Conversation";
+        switch (emotion) {
+          case "happy":
+            style = "Promo";
+            break;
+          case "sad":
+            style = "Sad";
+            break;
+          case "angry":
+            style = "Angry";
+            break;
+          default:
+            style = "Conversation";
+        }
 
-      let nextTime = audioCtx.currentTime;
-      let firstChunk = true;
-
-      // 4. Connect WebSocket
-      const ws = new WebSocket(`wss://global.api.murf.ai/v1/speech/stream-input?api-key=${import.meta.env.VITE_MURF_API_KEY}&model=FALCON&sample_rate=24000&channel_type=MONO&format=WAV`);
-
-      ws.onopen = () => {
-        ws.send(JSON.stringify({
-          "voice_config": {
-            "voiceId": "en-US-natalie",
-            "multiNativeLocale": "en-US",
-            "style": "Conversation",
-            "rate": 0,
-            "pitch": 0,
-            "variation": 1
-          }
-        }));
-        ws.send(JSON.stringify({ "text": text, "end": true }));
-      };
-
-      ws.onmessage = async (event) => {
-        const data = JSON.parse(event.data);
-        if (data.audio) {
-          const binaryString = atob(data.audio);
-          const bytes = new Uint8Array(binaryString.length);
-          for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-          }
-
-          let pcmData = bytes;
-          if (firstChunk && pcmData.length > 44) {
-            pcmData = pcmData.slice(44);
-            firstChunk = false;
-          } else if (firstChunk) {
-            return;
-          }
-
-          const int16 = new Int16Array(pcmData.buffer, pcmData.byteOffset, pcmData.byteLength / 2);
-          const float32 = new Float32Array(int16.length);
-          for (let i = 0; i < int16.length; i++) {
-            float32[i] = int16[i] / 32768.0;
-          }
-
-          if (float32.length > 0) {
-            const buffer = audioCtx.createBuffer(1, float32.length, 24000);
-            buffer.copyToChannel(float32, 0);
-
-            const source = audioCtx.createBufferSource();
-            source.buffer = buffer;
-            // Connect to speakers
-            source.connect(audioCtx.destination);
-
-            // Connect to analysis chain
-            source.connect(analysisGain);
-
-            if (nextTime < audioCtx.currentTime) {
-              nextTime = audioCtx.currentTime;
+        ws.onopen = () => {
+          ws.send(JSON.stringify({
+            "voice_config": {
+              "voiceId": "en-US-natalie",
+              "multiNativeLocale": "en-US",
+              "style": style,
+              "rate": 0,
+              "pitch": 0,
+              "variation": 1
             }
-            source.start(nextTime);
-            nextTime += buffer.duration;
+          }));
+          ws.send(JSON.stringify({ "text": text, "end": true }));
+        };
+
+        ws.onmessage = async (event) => {
+          const data = JSON.parse(event.data);
+          if (data.audio) {
+            const binaryString = atob(data.audio);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+            }
+
+            let pcmData = bytes;
+            if (firstChunk && pcmData.length > 44) {
+              pcmData = pcmData.slice(44);
+              firstChunk = false;
+            } else if (firstChunk) {
+              return;
+            }
+
+            // Convert to Float32
+            const int16 = new Int16Array(pcmData.buffer, pcmData.byteOffset, pcmData.byteLength / 2);
+            const float32 = new Float32Array(int16.length);
+            for (let i = 0; i < int16.length; i++) {
+              float32[i] = int16[i] / 32768.0;
+            }
+
+            if (float32.length > 0) {
+              // Create buffer at the source sample rate (24kHz)
+              // The Web Audio API will handle high-quality resampling to the hardware rate automatically
+              const buffer = audioCtx.createBuffer(1, float32.length, 24000);
+              buffer.copyToChannel(float32, 0);
+
+              const source = audioCtx.createBufferSource();
+              source.buffer = buffer;
+              source.connect(audioCtx.destination);
+              source.connect(analysisGain);
+
+              // Ensure we don't schedule in the past
+              if (nextTime < audioCtx.currentTime) {
+                nextTime = audioCtx.currentTime + 0.05;
+              }
+
+              // Schedule this chunk
+              source.start(nextTime);
+              nextTime += buffer.duration;
+            }
           }
-        }
 
-        if (data.final) {
-          ws.close();
-          const remainingTime = (nextTime - audioCtx.currentTime);
-          setTimeout(() => {
-            cancelAnimationFrame(animationFrameId);
-            setLipSyncActive(false);
-            resetVisemes();
-            audioCtx.close();
-          }, remainingTime * 1000 + 500);
-        }
-      };
+          if (data.final) {
+            ws.close();
+            const remainingTime = (nextTime - audioCtx.currentTime);
+            setTimeout(() => {
+              cancelAnimationFrame(animationFrameId);
+              setLipSyncActive(false);
+              resetVisemes();
+              audioCtx.close();
+              resolve();
+            }, remainingTime * 1000 + 300);
+          }
+        };
 
-      ws.onerror = (e) => {
-        console.error("WS Error", e);
-        setStatus("Error: TTS Stream failed");
-        cancelAnimationFrame(animationFrameId);
-        setLipSyncActive(false);
-        resetVisemes();
-      };
+        ws.onerror = (e) => {
+          console.error("WS Error", e);
+          setStatus("Error: TTS Stream failed");
+          cancelAnimationFrame(animationFrameId);
+          setLipSyncActive(false);
+          resetVisemes();
+          reject(e);
+        };
 
-    } catch (error) {
-      console.error("TTS Setup Error:", error);
-      throw error;
-    }
+      } catch (error) {
+        console.error("TTS Setup Error:", error);
+        reject(error);
+      }
+    });
   };
 
   const handleManualSend = () => {
