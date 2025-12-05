@@ -1,15 +1,13 @@
 import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 import { useAnimations, useFBX, useGLTF } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
-import { Face, Hand, Pose } from "kalidokit";
 import { useControls } from "leva";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Euler, Object3D, Quaternion, Vector3 } from "three";
 import { lerp } from "three/src/math/MathUtils.js";
 import { useEmotionContext } from "../hooks/useEmotionContext";
 import { useLipSyncContext } from "../hooks/useLipSyncContext";
-import { useVideoRecognition } from "../hooks/useVideoRecognition";
 import { remapMixamoAnimationToVrm } from "../utils/remapMixamoAnimationToVrm";
 
 const tmpVec3 = new Vector3();
@@ -69,61 +67,13 @@ export const VRMAvatar = ({ avatar, ...props }) => {
     setCurrentAnimation("Idle");
   }, [currentVrm, actions]);
 
-  const setResultsCallback = useVideoRecognition(
-    (state) => state.setResultsCallback
-  );
-  const videoElement = useVideoRecognition((state) => state.videoElement);
-
   // Lip sync context - Subscribe only to isLipSyncActive to trigger mode changes
   const isLipSyncActive = useLipSyncContext((state) => state.isLipSyncActive);
 
   // Emotion context
   const { getBlendedEmotionValues, updateTransition, shouldFadeEmotion, resetEmotion, isEmotionActive, currentEmotion } = useEmotionContext();
 
-  const riggedFace = useRef();
-  const riggedPose = useRef();
-  const riggedLeftHand = useRef();
-  const riggedRightHand = useRef();
   const smoothedVisemes = useRef({});
-
-  const resultsCallback = useCallback(
-    (results) => {
-      if (!videoElement || !currentVrm) {
-        return;
-      }
-      if (results.faceLandmarks) {
-        riggedFace.current = Face.solve(results.faceLandmarks, {
-          runtime: "mediapipe", // `mediapipe` or `tfjs`
-          video: videoElement,
-          imageSize: { width: 640, height: 480 },
-          smoothBlink: false, // smooth left and right eye blink delays
-          blinkSettings: [0.25, 0.75], // adjust upper and lower bound blink sensitivity
-        });
-      }
-      if (results.za && results.poseLandmarks) {
-        riggedPose.current = Pose.solve(results.za, results.poseLandmarks, {
-          runtime: "mediapipe",
-          video: videoElement,
-        });
-      }
-
-      // Switched left and right (Mirror effect)
-      if (results.leftHandLandmarks) {
-        riggedRightHand.current = Hand.solve(
-          results.leftHandLandmarks,
-          "Right"
-        );
-      }
-      if (results.rightHandLandmarks) {
-        riggedLeftHand.current = Hand.solve(results.rightHandLandmarks, "Left");
-      }
-    },
-    [videoElement, currentVrm]
-  );
-
-  useEffect(() => {
-    setResultsCallback(resultsCallback);
-  }, [resultsCallback]);
 
   const {
     aa,
@@ -158,16 +108,6 @@ export const VRMAvatar = ({ avatar, ...props }) => {
   };
 
   useEffect(() => {
-    if (videoElement) {
-      // Stop animations when video recognition is active
-      if (currentAnimation !== "Idle" && actions[currentAnimation]) {
-        actions[currentAnimation].fadeOut(0.5);
-      }
-      actions["Idle"]?.fadeIn(0.5).play();
-      setCurrentAnimation("Idle");
-      return;
-    }
-
     const newAnimation = emotionAnimationMap[currentEmotion];
 
     if (newAnimation && newAnimation !== currentAnimation) {
@@ -184,7 +124,7 @@ export const VRMAvatar = ({ avatar, ...props }) => {
       setCurrentAnimation("Idle");
     }
 
-  }, [currentEmotion, isEmotionActive, videoElement, actions, currentAnimation]);
+  }, [currentEmotion, isEmotionActive, actions, currentAnimation]);
 
   const lerpExpression = (name, value, lerpFactor) => {
     if (userData.vrm?.expressionManager) {
@@ -193,26 +133,6 @@ export const VRMAvatar = ({ avatar, ...props }) => {
         lerp(userData.vrm.expressionManager.getValue(name) ?? 0, value, lerpFactor)
       );
     }
-  };
-
-  const rotateBone = (
-    boneName,
-    value,
-    slerpFactor,
-    flip = {
-      x: 1,
-      y: 1,
-      z: 1,
-    }
-  ) => {
-    const bone = userData.vrm?.humanoid?.getNormalizedBoneNode(boneName);
-    if (!bone) {
-      return;
-    }
-
-    tmpEuler.set(value.x * flip.x, value.y * flip.y, value.z * flip.z);
-    tmpQuat.setFromEuler(tmpEuler);
-    bone.quaternion.slerp(tmpQuat, slerpFactor);
   };
 
   const blinkState = useRef({
@@ -270,7 +190,7 @@ export const VRMAvatar = ({ avatar, ...props }) => {
     // Determine target visemes from either lip-sync or manual controls
     let targetVisemes = { aa, ih, ee, oh, ou };
 
-    if (isLipSyncActive && !videoElement) {
+    if (isLipSyncActive) {
       // Read directly from store to avoid re-renders
       targetVisemes = useLipSyncContext.getState().currentViseme;
     }
@@ -284,31 +204,16 @@ export const VRMAvatar = ({ avatar, ...props }) => {
       smoothedVisemes.current[key] = lerp(current, target, delta * 15 * smoothingFactor);
     }
 
-    if (!videoElement) {
-      // Apply smoothed visemes
-      userData.vrm.expressionManager.setValue("aa", smoothedVisemes.current.aa);
-      userData.vrm.expressionManager.setValue("ih", smoothedVisemes.current.ih);
-      userData.vrm.expressionManager.setValue("ee", smoothedVisemes.current.ee);
-      userData.vrm.expressionManager.setValue("oh", smoothedVisemes.current.oh);
-      userData.vrm.expressionManager.setValue("ou", smoothedVisemes.current.ou);
+    // Apply smoothed visemes
+    userData.vrm.expressionManager.setValue("aa", smoothedVisemes.current.aa);
+    userData.vrm.expressionManager.setValue("ih", smoothedVisemes.current.ih);
+    userData.vrm.expressionManager.setValue("ee", smoothedVisemes.current.ee);
+    userData.vrm.expressionManager.setValue("oh", smoothedVisemes.current.oh);
+    userData.vrm.expressionManager.setValue("ou", smoothedVisemes.current.ou);
 
-      // Apply procedural blink, allowing manual override from Leva
-      lerpExpression("blinkLeft", blinkLeft > 0 ? blinkLeft : blinkValue, delta * 24);
-      lerpExpression("blinkRight", blinkRight > 0 ? blinkRight : blinkValue, delta * 24);
-
-    } else {
-      if (riggedFace.current) {
-        // Apply expressions from video recognition
-        lerpExpression("aa", riggedFace.current.mouth.shape.A, delta * 12);
-        lerpExpression("ih", riggedFace.current.mouth.shape.I, delta * 12);
-        lerpExpression("ee", riggedFace.current.mouth.shape.E, delta * 12);
-        lerpExpression("oh", riggedFace.current.mouth.shape.O, delta * 12);
-        lerpExpression("ou", riggedFace.current.mouth.shape.U, delta * 12);
-        lerpExpression("blinkLeft", 1 - riggedFace.current.eye.l, delta * 12);
-        lerpExpression("blinkRight", 1 - riggedFace.current.eye.r, delta * 12);
-      }
-      // Body tracking etc.
-    }
+    // Apply procedural blink, allowing manual override from Leva
+    lerpExpression("blinkLeft", blinkLeft > 0 ? blinkLeft : blinkValue, delta * 24);
+    lerpExpression("blinkRight", blinkRight > 0 ? blinkRight : blinkValue, delta * 24);
 
     userData.vrm.update(delta);
   });
