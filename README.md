@@ -1,4 +1,4 @@
-# AI Companion (Frontend Only)
+# LUNA AI
 
 A real-time 3D AI companion running entirely in the browser using React, Three.js, and cloud AI services.
 
@@ -86,6 +86,52 @@ The voice is configured in `src/components/VoiceAssistant.jsx` inside the `playS
 "voiceId": "en-US-natalie",
 // ... other settings
 ```
+
+## API Integration Details
+
+### 1. Chat Generation (Groq API)
+- **Endpoint**: `https://api.groq.com/openai/v1/chat/completions` (Proxied via `/groq`)
+- **Method**: `POST`
+- **Model**: `llama-3.3-70b-versatile`
+- **Payload**:
+  ```json
+  {
+    "messages": [
+      { "role": "system", "content": "..." },
+      { "role": "user", "content": "User input" }
+    ],
+    "model": "llama-3.3-70b-versatile",
+    "temperature": 0.6,
+    "max_tokens": 512
+  }
+  ```
+
+### 2. Text-to-Speech (Murf Falcon API)
+- **Endpoint**: `wss://global.api.murf.ai/v1/speech/stream-input`
+- **Protocol**: WebSocket
+- **Parameters**:
+  - `api-key`: Your Murf API Key
+  - `model`: `FALCON`
+  - `sample_rate`: `24000`
+  - `format`: `WAV`
+- **Workflow**:
+  1.  **Connect**: Establish WebSocket connection.
+  2.  **Configure**: Send voice configuration JSON.
+      ```json
+      {
+        "voice_config": {
+          "voiceId": "en-US-natalie",
+          "style": "Promo", // Changes based on emotion (Promo, Sad, Angry, Conversation)
+          "rate": 0,
+          "pitch": 0
+        }
+      }
+      ```
+  3.  **Stream**: Send text payload.
+      ```json
+      { "text": "Hello world", "end": true }
+      ```
+  4.  **Receive**: Handle incoming binary audio chunks and play them using the Web Audio API.
 
 ## Troubleshooting
 
