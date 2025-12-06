@@ -1,4 +1,4 @@
-# LUNA AI
+# LUNA AI COMPANION
 
 A real-time 3D AI companion running entirely in the browser using React, Three.js, and cloud AI services.
 
@@ -12,6 +12,9 @@ This project implements a fully interactive 3D avatar that can listen, think, an
 > We have transitioned to a cloud-based pipeline for simplicity and performance. However, **Murf AI does not provide voice cloning for free**, so replicating the exact previous voice was difficult. We are now using Murf's "Natalie" (en-US) voice via their Falcon model.
 >
 > All functionalities (STT, Chat, TTS, Lip Sync, Emotions) now run directly in the browser, connected via simple APIs and WebSockets.
+
+## Demo Walkthrough (click on the thumbnail below)
+[![Luna Demo](./public/thumbnail/luna.png)](https://youtu.be/fMGMmm3KJ2c)
 
 ## Features
 
@@ -42,7 +45,7 @@ This project implements a fully interactive 3D avatar that can listen, think, an
     ```
 
 3.  **Configure Environment Variables**
-    Create a `.env` file in the root directory (or rename `.env.example` if available) and add your API keys:
+    Create a `.env` file in the root directory (or rename `.env.example`) and add your API keys:
 
     ```env
     VITE_GROQ_API_KEY=your_groq_api_key_here
